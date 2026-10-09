@@ -1,0 +1,286 @@
+//+------------------------------------------------------------------+
+//|                                           SMC_MTF_StrictRRR.mq5 |
+//|                                  Copyright 2026, Trading Bot EA |
+//+------------------------------------------------------------------+
+#property copyright "Trading Bot"
+#property link      ""
+#property version   "1.10"
+#include <Trade\Trade.mqh>
+
+//--- Inputs
+input group "--- Risk & Trade Settings ---"
+input double   InpRiskPercent    = 1.0;        // Risk per trade (% of Equity)
+input double   InpMinRRR         = 3.0;        // Minimum Required RRR (e.g. 3.0 = 1:3 or better)
+input ulong    InpMagicNumber    = 881122;     // EA Magic Number
+
+input group "--- Timeframe Settings ---"
+input ENUM_TIMEFRAMES InpHTF1    = PERIOD_H4;   // Primary Trend Timeframe
+input ENUM_TIMEFRAMES InpHTF2    = PERIOD_H1;   // Secondary Trend Timeframe
+input ENUM_TIMEFRAMES InpHTF3    = PERIOD_M15;  // Structure Timeframe
+input bool            InpUseM5   = true;        // Enable M5 Entries
+input bool            InpUseM1   = true;        // Enable M1 Entries
+
+input group "--- SMC Parameters ---"
+input int      InpSwingDepth     = 5;          // Swing High/Low Strength
+input double   InpMinFVGPips     = 1.5;        // Minimum FVG size in Pips
+
+//--- Global Variables
+CTrade trade;
+datetime lastM5Time = 0;
+datetime lastM1Time = 0;
+
+struct SMCZone
+{
+   double   top;
+   double   bottom;
+   bool     isBullish;
+   datetime time;
+};
+
+//+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
+int OnInit()
+{
+   trade.SetExpertMagicNumber(InpMagicNumber);
+   return(INIT_SUCCEEDED);
+}
+
+//+------------------------------------------------------------------+
+//| Helper: Calculate position size based on Risk %                  |
+//+------------------------------------------------------------------+
+double CalculateLotSize(double slPoints)
+{
+   if(slPoints <= 0) return SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+
+   double equity       = AccountInfoDouble(ACCOUNT_EQUITY);
+   double riskAmount   = equity * (InpRiskPercent / 100.0);
+   double tickSize     = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+   double tickValue    = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+   double point        = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+
+   if(tickSize == 0 || tickValue == 0) return SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+
+   double valuePerPoint = (tickValue / tickSize) * point;
+   double lotSize       = riskAmount / (slPoints * valuePerPoint);
+
+   double minLot   = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   double maxLot   = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
+   double lotStep  = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+
+   lotSize = MathFloor(lotSize / lotStep) * lotStep;
+   return MathMin(maxLot, MathMax(minLot, lotSize));
+}
+
+//+------------------------------------------------------------------+
+//| Helper: Find Target Liquidity (Opposing Swing High / Low)        |
+//+------------------------------------------------------------------+
+double GetTargetLiquidity(bool findHigh)
+{
+   MqlRates rates[];
+   ArraySetAsSeries(rates, true);
+   int checkBars = InpSwingDepth * 2 + 50;
+
+   if(CopyRates(_Symbol, PERIOD_M15, 0, checkBars, rates) < checkBars) return 0;
+
+   for(int i = InpSwingDepth; i < checkBars - InpSwingDepth; i++)
+   {
+      bool isExtremum = true;
+      for(int j = 1; j <= InpSwingDepth; j++)
+      {
+         if(findHigh)
+         {
+            if(rates[i].high <= rates[i - j].high || rates[i].high <= rates[i + j].high)
+            {
+               isExtremum = false;
+               break;
+            }
+         }
+         else
+         {
+            if(rates[i].low >= rates[i - j].low || rates[i].low >= rates[i + j].low)
+            {
+               isExtremum = false;
+               break;
+            }
+         }
+      }
+
+      if(isExtremum)
+      {
+         return findHigh ? rates[i].high : rates[i].low;
+      }
+   }
+   return 0;
+}
+
+//+------------------------------------------------------------------+
+//| Helper: Find HTF Fair Value Gaps (SMC Zone)                      |
+//+------------------------------------------------------------------+
+bool GetHTFZone(ENUM_TIMEFRAMES tf, SMCZone &outZone)
+{
+   MqlRates rates[];
+   ArraySetAsSeries(rates, true);
+   if(CopyRates(_Symbol, tf, 1, 10, rates) < 10) return false;
+
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   double minFVG = InpMinFVGPips * point * 10;
+
+   for(int i = 0; i < 7; i++)
+   {
+      // Bullish FVG
+      if((rates[i].low - rates[i+2].high) >= minFVG)
+      {
+         outZone.bottom    = rates[i+2].high;
+         outZone.top       = rates[i].low;
+         outZone.isBullish = true;
+         outZone.time      = rates[i].time;
+         return true;
+      }
+      // Bearish FVG
+      if((rates[i+2].low - rates[i].high) >= minFVG)
+      {
+         outZone.bottom    = rates[i].high;
+         outZone.top       = rates[i+2].low;
+         outZone.isBullish = false;
+         outZone.time      = rates[i].time;
+         return true;
+      }
+   }
+   return false;
+}
+
+//+------------------------------------------------------------------+
+//| Core Function: Multi-TF Scan & Execution with Strict RRR         |
+//+------------------------------------------------------------------+
+void EvaluateExecution(ENUM_TIMEFRAMES ltf)
+{
+   // Prevent running if a trade is already active
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      if(PositionGetSymbol(i) == _Symbol && PositionGetInteger(POSITION_MAGIC) == InpMagicNumber)
+         return;
+   }
+
+   // 1. Scan Higher Timeframes for valid SMC Zones
+   ENUM_TIMEFRAMES htfList[3] = {InpHTF1, InpHTF2, InpHTF3};
+   SMCZone activeZone;
+   bool zoneFound = false;
+
+   double currentAsk = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   double currentBid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+
+   for(int k = 0; k < 3; k++)
+   {
+      SMCZone tempZone;
+      if(GetHTFZone(htfList[k], tempZone))
+      {
+         if(tempZone.isBullish && currentBid >= tempZone.bottom && currentBid <= tempZone.top)
+         {
+            activeZone = tempZone;
+            zoneFound = true;
+            break;
+         }
+         if(!tempZone.isBullish && currentAsk >= tempZone.bottom && currentAsk <= tempZone.top)
+         {
+            activeZone = tempZone;
+            zoneFound = true;
+            break;
+         }
+      }
+   }
+
+   if(!zoneFound) return;
+
+   // 2. Validate Lower Timeframe Confirmation (M5 or M1)
+   MqlRates ltfRates[];
+   ArraySetAsSeries(ltfRates, true);
+   if(CopyRates(_Symbol, ltf, 1, 3, ltfRates) < 3) return;
+
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+
+   // --- BULLISH SETUP EXECUTION ---
+   if(activeZone.isBullish && ltfRates[0].close > ltfRates[0].open)
+   {
+      double slPrice  = ltfRates[0].low - (5 * point);
+      double slPoints = (currentAsk - slPrice) / point;
+
+      if(slPoints > 0)
+      {
+         // Dynamic Target: Structural Liquidity (Recent M15 Swing High)
+         double targetTP = GetTargetLiquidity(true);
+         double tpPoints = (targetTP > currentAsk) ? (targetTP - currentAsk) / point : 0;
+
+         // Fallback to fixed 1:3 RRR if structural TP is not set or smaller than 1:3
+         if(tpPoints / slPoints < InpMinRRR)
+         {
+            tpPoints = slPoints * InpMinRRR;
+            targetTP = currentAsk + (tpPoints * point);
+         }
+
+         // Strict Check: Execute ONLY if prospective RRR >= InpMinRRR (1:3)
+         double calculatedRRR = tpPoints / slPoints;
+         if(calculatedRRR >= InpMinRRR)
+         {
+            double lot = CalculateLotSize(slPoints);
+            trade.Buy(lot, _Symbol, currentAsk, slPrice, targetTP, 
+                      StringFormat("SMC %s (RRR 1:%.2f)", EnumToString(ltf), calculatedRRR));
+         }
+      }
+   }
+   // --- BEARISH SETUP EXECUTION ---
+   else if(!activeZone.isBullish && ltfRates[0].close < ltfRates[0].open)
+   {
+      double slPrice  = ltfRates[0].high + (5 * point);
+      double slPoints = (slPrice - currentBid) / point;
+
+      if(slPoints > 0)
+      {
+         // Dynamic Target: Structural Liquidity (Recent M15 Swing Low)
+         double targetTP = GetTargetLiquidity(false);
+         double tpPoints = (targetTP > 0 && targetTP < currentBid) ? (currentBid - targetTP) / point : 0;
+
+         // Fallback to fixed 1:3 RRR if structural TP is not set or smaller than 1:3
+         if(tpPoints / slPoints < InpMinRRR)
+         {
+            tpPoints = slPoints * InpMinRRR;
+            targetTP = currentBid - (tpPoints * point);
+         }
+
+         // Strict Check: Execute ONLY if prospective RRR >= InpMinRRR (1:3)
+         double calculatedRRR = tpPoints / slPoints;
+         if(calculatedRRR >= InpMinRRR)
+         {
+            double lot = CalculateLotSize(slPoints);
+            trade.Sell(lot, _Symbol, currentBid, slPrice, targetTP, 
+                       StringFormat("SMC %s (RRR 1:%.2f)", EnumToString(ltf), calculatedRRR));
+         }
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Expert tick function                                             |
+//+------------------------------------------------------------------+
+void OnTick()
+{
+   if(InpUseM5)
+   {
+      datetime currentM5 = iTime(_Symbol, PERIOD_M5, 0);
+      if(currentM5 != lastM5Time)
+      {
+         lastM5Time = currentM5;
+         EvaluateExecution(PERIOD_M5);
+      }
+   }
+
+   if(InpUseM1)
+   {
+      datetime currentM1 = iTime(_Symbol, PERIOD_M1, 0);
+      if(currentM1 != lastM1Time)
+      {
+         lastM1Time = currentM1;
+         EvaluateExecution(PERIOD_M1);
+      }
+   }
+}
