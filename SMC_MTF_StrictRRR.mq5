@@ -574,6 +574,9 @@ void EvaluateExecution(ENUM_TIMEFRAMES ltf)
       SMCZone tempZone;
       if(GetHTFZone(htfList[k], tempZone))
       {
+         if(InpDrawPAVisuals && InpDrawSMCZones)
+            DrawSMCZone(tempZone);
+
          if(tempZone.isBullish && IsPriceInZone(currentBid, tempZone))
          {
             activeZone = tempZone;
@@ -592,6 +595,9 @@ void EvaluateExecution(ENUM_TIMEFRAMES ltf)
 
    if(!zoneFound)
       return;
+
+   if(InpDrawPAVisuals && InpDrawSMCZones)
+      DrawSMCZone(activeZone);
 
    MqlRates ltfRates[];
    ArraySetAsSeries(ltfRates, true);
