@@ -55,6 +55,90 @@ struct PriceActionLevel
 };
 
 //+------------------------------------------------------------------+
+//| Helper: remove old chart objects with given prefix               |
+//+------------------------------------------------------------------+
+void CleanOldObjects(const string prefix)
+{
+   int total = ObjectsTotal(0);
+   for(int i = total - 1; i >= 0; i--)
+   {
+      string name = ObjectName(0, i);
+      if(StringFind(name, prefix) == 0)
+         ObjectDelete(0, name);
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Helper: draw SMC zone rectangle on chart                         |
+//+------------------------------------------------------------------+
+void DrawSMCZone(const SMCZone &zone)
+{
+   string id = "SMC_ZONE_" + IntegerToString((int)zone.time);
+   // remove old with same id
+   ObjectDelete(0, id);
+
+   datetime leftTime = zone.time;
+   datetime rightTime = TimeCurrent();
+   double top = zone.top;
+   double bottom = zone.bottom;
+
+   if(leftTime == 0 || rightTime == 0 || top == 0 || bottom == 0)
+      return;
+
+   bool ok = ObjectCreate(0, id, OBJ_RECTANGLE, 0, leftTime, top, rightTime, bottom);
+   if(ok)
+   {
+      ObjectSetInteger(0, id, OBJPROP_COLOR, zone.isBullish ? clrDodgerBlue : clrTomato);
+      ObjectSetInteger(0, id, OBJPROP_STYLE, STYLE_SOLID);
+      ObjectSetInteger(0, id, OBJPROP_BACK, true);
+      ObjectSetInteger(0, id, OBJPROP_WIDTH, 1);
+      ObjectSetInteger(0, id, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, id, OBJPROP_HIDDEN, true);
+      ObjectSetInteger(0, id, OBJPROP_TIME1, (int)leftTime);
+      ObjectSetInteger(0, id, OBJPROP_TIME2, (int)rightTime);
+   }
+
+   // draw top and bottom horizontal lines
+   string topId = id + "_TOP";
+   string botId = id + "_BOT";
+   ObjectDelete(0, topId);
+   ObjectDelete(0, botId);
+   ObjectCreate(0, topId, OBJ_HLINE, 0, 0, top);
+   ObjectCreate(0, botId, OBJ_HLINE, 0, 0, bottom);
+   ObjectSetInteger(0, topId, OBJPROP_COLOR, clrSilver);
+   ObjectSetInteger(0, botId, OBJPROP_COLOR, clrSilver);
+}
+
+//+------------------------------------------------------------------+
+//| Helper: draw horizontal support/resistance line                  |
+//+------------------------------------------------------------------+
+void DrawPRLevel(double price, bool isSupport, datetime t)
+{
+   if(price <= 0) return;
+   string id = (isSupport ? "PA_SUPPORT_" : "PA_RESIST_") + IntegerToString((int)t);
+   ObjectDelete(0, id);
+   ObjectCreate(0, id, OBJ_HLINE, 0, 0, price);
+   ObjectSetInteger(0, id, OBJPROP_COLOR, isSupport ? clrGreen : clrRed);
+   ObjectSetString(0, id, OBJPROP_TEXT, isSupport ? "PA Support" : "PA Resist");
+}
+
+//+------------------------------------------------------------------+
+//| Helper: draw trendline between two pivots                        |
+//+------------------------------------------------------------------+
+void DrawTrendline(datetime t1, double p1, datetime t2, double p2, bool isSupport)
+{
+   if(t1 == 0 || t2 == 0) return;
+   string id = (isSupport ? "PA_TREND_SUP_" : "PA_TREND_RES_") + IntegerToString((int)t1) + "_" + IntegerToString((int)t2);
+   ObjectDelete(0, id);
+   bool ok = ObjectCreate(0, id, OBJ_TREND, 0, t1, p1, t2, p2);
+   if(ok)
+   {
+      ObjectSetInteger(0, id, OBJPROP_COLOR, isSupport ? clrLime : clrOrangeRed);
+      ObjectSetInteger(0, id, OBJPROP_WIDTH, 2);
+   }
+}
+
+//+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
 int OnInit()
@@ -268,15 +352,18 @@ bool IsPriceInZone(double price, const SMCZone &zone)
 //+------------------------------------------------------------------+
 //| Helper: identify nearest valid support/resistance pivot            |
 //+------------------------------------------------------------------+
-bool FindNearestTrendline(bool support, double &level)
+bool FindNearestTrendline(bool support, double &level, datetime &levelTime, datetime &prevTime, double &prevLevel)
 {
    MqlRates rates[];
    ArraySetAsSeries(rates, true);
    int lookback = MathMax(30, InpPriceActionLookback);
 
+   level = 0.0; levelTime = 0; prevTime = 0; prevLevel = 0.0;
+
    if(CopyRates(_Symbol, PERIOD_M15, 0, lookback, rates) < lookback)
       return false;
 
+   // find most recent pivot
    for(int i = InpSwingDepth; i < lookback - InpSwingDepth; i++)
    {
       bool isPivot = true;
@@ -303,6 +390,35 @@ bool FindNearestTrendline(bool support, double &level)
       if(isPivot)
       {
          level = support ? rates[i].low : rates[i].high;
+         levelTime = rates[i].time;
+         // search for previous pivot further back
+         for(int k = i+1; k < lookback - InpSwingDepth; k++)
+         {
+            bool prevPivot = true;
+            for(int j = 1; j <= InpSwingDepth; j++)
+            {
+               if(support)
+               {
+                  if(rates[k].low >= rates[k - j].low || rates[k].low >= rates[k + j].low)
+                  {
+                     prevPivot = false; break;
+                  }
+               }
+               else
+               {
+                  if(rates[k].high <= rates[k - j].high || rates[k].high <= rates[k + j].high)
+                  {
+                     prevPivot = false; break;
+                  }
+               }
+            }
+            if(prevPivot)
+            {
+               prevTime = rates[k].time;
+               prevLevel = support ? rates[k].low : rates[k].high;
+               break;
+            }
+         }
          return true;
       }
    }
@@ -362,13 +478,22 @@ bool HasPriceActionConfirmation(bool bullishZone, double currentPrice, double ma
 
    double supportLevel = 0.0;
    double resistanceLevel = 0.0;
-   bool hasSupport = FindNearestTrendline(true, supportLevel);
-   bool hasResistance = FindNearestTrendline(false, resistanceLevel);
+   datetime supportTime = 0, resTime = 0, prevTime = 0;
+   double prevSupport = 0.0, prevRes = 0.0;
+
+   bool hasSupport = FindNearestTrendline(true, supportLevel, supportTime, prevTime, prevSupport);
+   bool hasResistance = FindNearestTrendline(false, resistanceLevel, resTime, prevTime, prevRes);
    double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
    double tolerance = MathMax(5.0 * point, 1.5 * PipSize());
 
    bool nearSupport = hasSupport && (MathAbs(currentPrice - supportLevel) <= tolerance);
    bool nearResistance = hasResistance && (MathAbs(currentPrice - resistanceLevel) <= tolerance);
+
+   // draw the detected levels for debugging/visual confirmation
+   if(hasSupport) DrawPRLevel(supportLevel, true, supportTime);
+   if(hasResistance) DrawPRLevel(resistanceLevel, false, resTime);
+   if(hasSupport && prevTime != 0) DrawTrendline(supportTime, supportLevel, prevTime, prevSupport, true);
+   if(hasResistance && prevRes != 0) DrawTrendline(resTime, resistanceLevel, prevTime, prevRes, false);
 
    if(bullishZone)
    {
