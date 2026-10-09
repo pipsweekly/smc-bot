@@ -79,7 +79,7 @@ double PipSize()
 bool IsSyntheticIndex()
 {
    string symbol = _Symbol;
-   symbol = StringToUpper(symbol);
+   StringToUpper(symbol);
    StringReplace(symbol, " ", "");
    StringReplace(symbol, "_", "");
    StringReplace(symbol, "-", "");
