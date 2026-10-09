@@ -79,11 +79,11 @@ double PipSize()
 bool IsSyntheticIndex()
 {
    string symbol = _Symbol;
-   symbol = StringUpper(symbol);
-   symbol = StringReplace(symbol, " ", "");
-   symbol = StringReplace(symbol, "_", "");
-   symbol = StringReplace(symbol, "-", "");
-   symbol = StringReplace(symbol, ".", "");
+   symbol = StringToUpper(symbol);
+   StringReplace(symbol, " ", "");
+   StringReplace(symbol, "_", "");
+   StringReplace(symbol, "-", "");
+   StringReplace(symbol, ".", "");
 
    return StringFind(symbol, "VOL") >= 0 ||
           StringFind(symbol, "CRASH") >= 0 ||
@@ -396,8 +396,8 @@ void EvaluateExecution(ENUM_TIMEFRAMES ltf)
        return;
 
     ENUM_TIMEFRAMES htfList[3] = {InpHTF1, InpHTF2, InpHTF3};
-   SMCZone activeZone;
-   bool zoneFound = false;
+    SMCZone activeZone = {0.0, 0.0, false, 0};
+    bool zoneFound = false;
 
    double currentAsk = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    double currentBid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
