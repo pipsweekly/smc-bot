@@ -32,10 +32,12 @@ input group "--- SMC Parameters ---"
 input int      InpSwingDepth     = 5;           // Swing high/low strength
 input double   InpMinFVGPips     = 0.8;         // Minimum FVG size in pips for synthetic indices
 input bool     InpUsePriceAction = true;        // Enable price-action confirmation (support/resistance, trendlines, flags)
+input bool     InpDrawPAVisuals  = true;        // Master toggle for price-action chart visuals
 input bool     InpDrawSMCZones   = true;        // Draw SMC/FVG zones on the chart
 input bool     InpDrawPivotLevels = true;       // Draw pivot support/resistance levels
 input bool     InpDrawTrendlines = true;         // Draw trendlines between pivots
 input int      InpPriceActionLookback = 80;      // Bars used to detect trendline + flag structure
+input bool     InpDrawOnlyLatest = true;        // Keep only the newest zone/level/trendline visible
 
 //--- Global variables
 CTrade trade;
@@ -71,6 +73,17 @@ void CleanOldObjects(const string prefix)
    }
 }
 
+void RemovePreviousVisuals(const string prefix, const string kind)
+{
+   int total = ObjectsTotal(0);
+   for(int i = total - 1; i >= 0; i--)
+   {
+     string name = ObjectName(0, i);
+     if(StringFind(name, prefix) == 0 && StringFind(name, kind) >= 0)
+        ObjectDelete(0, name);
+   }
+}
+
 //+------------------------------------------------------------------+
 //| Helper: draw SMC zone rectangle on chart                         |
 //+------------------------------------------------------------------+
@@ -81,10 +94,13 @@ string BuildObjectPrefix()
 
 void DrawSMCZone(const SMCZone &zone)
 {
-   if(!InpDrawSMCZones)
+   if(!InpDrawPAVisuals || !InpDrawSMCZones)
       return;
-
+ 
    string prefix = BuildObjectPrefix();
+   if(InpDrawOnlyLatest)
+      RemovePreviousVisuals(prefix, "SMC_ZONE_");
+
    string id = prefix + "SMC_ZONE_" + IntegerToString((int)zone.time);
    ObjectDelete(0, id);
 
@@ -119,6 +135,9 @@ void DrawSMCZone(const SMCZone &zone)
    ObjectSetInteger(0, botId, OBJPROP_COLOR, clrSilver);
    ObjectSetInteger(0, topId, OBJPROP_BACK, true);
    ObjectSetInteger(0, botId, OBJPROP_BACK, true);
+   ObjectSetInteger(0, id, OBJPROP_TRANSPARENT, true);
+   ObjectSetInteger(0, topId, OBJPROP_TRANSPARENT, true);
+   ObjectSetInteger(0, botId, OBJPROP_TRANSPARENT, true);
 }
 
 //+------------------------------------------------------------------+
@@ -126,15 +145,20 @@ void DrawSMCZone(const SMCZone &zone)
 //+------------------------------------------------------------------+
 void DrawPRLevel(double price, bool isSupport, datetime t)
 {
-   if(!InpDrawPivotLevels || price <= 0)
+   if(!InpDrawPAVisuals || !InpDrawPivotLevels || price <= 0)
       return;
+ 
+   string prefix = BuildObjectPrefix();
+   if(InpDrawOnlyLatest)
+      RemovePreviousVisuals(prefix, isSupport ? "PA_SUPPORT_" : "PA_RESIST_");
 
-   string id = BuildObjectPrefix() + (isSupport ? "PA_SUPPORT_" : "PA_RESIST_") + IntegerToString((int)t);
+   string id = prefix + (isSupport ? "PA_SUPPORT_" : "PA_RESIST_") + IntegerToString((int)t);
    ObjectDelete(0, id);
    ObjectCreate(0, id, OBJ_HLINE, 0, 0, price);
    ObjectSetInteger(0, id, OBJPROP_COLOR, isSupport ? clrGreen : clrRed);
    ObjectSetString(0, id, OBJPROP_TEXT, isSupport ? "PA Support" : "PA Resist");
    ObjectSetInteger(0, id, OBJPROP_BACK, true);
+   ObjectSetInteger(0, id, OBJPROP_TRANSPARENT, true);
 }
 
 //+------------------------------------------------------------------+
@@ -142,10 +166,14 @@ void DrawPRLevel(double price, bool isSupport, datetime t)
 //+------------------------------------------------------------------+
 void DrawTrendline(datetime t1, double p1, datetime t2, double p2, bool isSupport)
 {
-   if(!InpDrawTrendlines || t1 == 0 || t2 == 0)
+   if(!InpDrawPAVisuals || !InpDrawTrendlines || t1 == 0 || t2 == 0)
       return;
 
-   string id = BuildObjectPrefix() + (isSupport ? "PA_TREND_SUP_" : "PA_TREND_RES_") + IntegerToString((int)t1) + "_" + IntegerToString((int)t2);
+   string prefix = BuildObjectPrefix();
+   if(InpDrawOnlyLatest)
+      RemovePreviousVisuals(prefix, isSupport ? "PA_TREND_SUP_" : "PA_TREND_RES_");
+
+   string id = prefix + (isSupport ? "PA_TREND_SUP_" : "PA_TREND_RES_") + IntegerToString((int)t1) + "_" + IntegerToString((int)t2);
    ObjectDelete(0, id);
    bool ok = ObjectCreate(0, id, OBJ_TREND, 0, t1, p1, t2, p2);
    if(ok)
@@ -153,6 +181,7 @@ void DrawTrendline(datetime t1, double p1, datetime t2, double p2, bool isSuppor
       ObjectSetInteger(0, id, OBJPROP_COLOR, isSupport ? clrLime : clrOrangeRed);
       ObjectSetInteger(0, id, OBJPROP_WIDTH, 2);
       ObjectSetInteger(0, id, OBJPROP_BACK, true);
+      ObjectSetInteger(0, id, OBJPROP_TRANSPARENT, true);
    }
 }
 
@@ -162,7 +191,8 @@ void DrawTrendline(datetime t1, double p1, datetime t2, double p2, bool isSuppor
 int OnInit()
 {
    trade.SetExpertMagicNumber(InpMagicNumber);
-   CleanOldObjects(BuildObjectPrefix());
+   if(InpDrawPAVisuals)
+      CleanOldObjects(BuildObjectPrefix());
    return(INIT_SUCCEEDED);
 }
 
@@ -642,7 +672,8 @@ void EvaluateExecution(ENUM_TIMEFRAMES ltf)
 //+------------------------------------------------------------------+
 void OnTick()
 {
-   CleanOldObjects(BuildObjectPrefix());
+   if(InpDrawPAVisuals)
+      CleanOldObjects(BuildObjectPrefix());
 
    if(InpUseM5)
    {
