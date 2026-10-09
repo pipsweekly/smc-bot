@@ -32,6 +32,9 @@ input group "--- SMC Parameters ---"
 input int      InpSwingDepth     = 5;           // Swing high/low strength
 input double   InpMinFVGPips     = 0.8;         // Minimum FVG size in pips for synthetic indices
 input bool     InpUsePriceAction = true;        // Enable price-action confirmation (support/resistance, trendlines, flags)
+input bool     InpDrawSMCZones   = true;        // Draw SMC/FVG zones on the chart
+input bool     InpDrawPivotLevels = true;       // Draw pivot support/resistance levels
+input bool     InpDrawTrendlines = true;         // Draw trendlines between pivots
 input int      InpPriceActionLookback = 80;      // Bars used to detect trendline + flag structure
 
 //--- Global variables
@@ -71,10 +74,18 @@ void CleanOldObjects(const string prefix)
 //+------------------------------------------------------------------+
 //| Helper: draw SMC zone rectangle on chart                         |
 //+------------------------------------------------------------------+
+string BuildObjectPrefix()
+{
+   return _Symbol + "_" + EnumToString(_Period) + "_";
+}
+
 void DrawSMCZone(const SMCZone &zone)
 {
-   string id = "SMC_ZONE_" + IntegerToString((int)zone.time);
-   // remove old with same id
+   if(!InpDrawSMCZones)
+      return;
+
+   string prefix = BuildObjectPrefix();
+   string id = prefix + "SMC_ZONE_" + IntegerToString((int)zone.time);
    ObjectDelete(0, id);
 
    datetime leftTime = zone.time;
@@ -98,7 +109,6 @@ void DrawSMCZone(const SMCZone &zone)
       ObjectSetInteger(0, id, OBJPROP_TIME2, (int)rightTime);
    }
 
-   // draw top and bottom horizontal lines
    string topId = id + "_TOP";
    string botId = id + "_BOT";
    ObjectDelete(0, topId);
@@ -107,6 +117,8 @@ void DrawSMCZone(const SMCZone &zone)
    ObjectCreate(0, botId, OBJ_HLINE, 0, 0, bottom);
    ObjectSetInteger(0, topId, OBJPROP_COLOR, clrSilver);
    ObjectSetInteger(0, botId, OBJPROP_COLOR, clrSilver);
+   ObjectSetInteger(0, topId, OBJPROP_BACK, true);
+   ObjectSetInteger(0, botId, OBJPROP_BACK, true);
 }
 
 //+------------------------------------------------------------------+
@@ -114,12 +126,15 @@ void DrawSMCZone(const SMCZone &zone)
 //+------------------------------------------------------------------+
 void DrawPRLevel(double price, bool isSupport, datetime t)
 {
-   if(price <= 0) return;
-   string id = (isSupport ? "PA_SUPPORT_" : "PA_RESIST_") + IntegerToString((int)t);
+   if(!InpDrawPivotLevels || price <= 0)
+      return;
+
+   string id = BuildObjectPrefix() + (isSupport ? "PA_SUPPORT_" : "PA_RESIST_") + IntegerToString((int)t);
    ObjectDelete(0, id);
    ObjectCreate(0, id, OBJ_HLINE, 0, 0, price);
    ObjectSetInteger(0, id, OBJPROP_COLOR, isSupport ? clrGreen : clrRed);
    ObjectSetString(0, id, OBJPROP_TEXT, isSupport ? "PA Support" : "PA Resist");
+   ObjectSetInteger(0, id, OBJPROP_BACK, true);
 }
 
 //+------------------------------------------------------------------+
@@ -127,14 +142,17 @@ void DrawPRLevel(double price, bool isSupport, datetime t)
 //+------------------------------------------------------------------+
 void DrawTrendline(datetime t1, double p1, datetime t2, double p2, bool isSupport)
 {
-   if(t1 == 0 || t2 == 0) return;
-   string id = (isSupport ? "PA_TREND_SUP_" : "PA_TREND_RES_") + IntegerToString((int)t1) + "_" + IntegerToString((int)t2);
+   if(!InpDrawTrendlines || t1 == 0 || t2 == 0)
+      return;
+
+   string id = BuildObjectPrefix() + (isSupport ? "PA_TREND_SUP_" : "PA_TREND_RES_") + IntegerToString((int)t1) + "_" + IntegerToString((int)t2);
    ObjectDelete(0, id);
    bool ok = ObjectCreate(0, id, OBJ_TREND, 0, t1, p1, t2, p2);
    if(ok)
    {
       ObjectSetInteger(0, id, OBJPROP_COLOR, isSupport ? clrLime : clrOrangeRed);
       ObjectSetInteger(0, id, OBJPROP_WIDTH, 2);
+      ObjectSetInteger(0, id, OBJPROP_BACK, true);
    }
 }
 
@@ -144,6 +162,7 @@ void DrawTrendline(datetime t1, double p1, datetime t2, double p2, bool isSuppor
 int OnInit()
 {
    trade.SetExpertMagicNumber(InpMagicNumber);
+   CleanOldObjects(BuildObjectPrefix());
    return(INIT_SUCCEEDED);
 }
 
@@ -623,24 +642,26 @@ void EvaluateExecution(ENUM_TIMEFRAMES ltf)
 //+------------------------------------------------------------------+
 void OnTick()
 {
+   CleanOldObjects(BuildObjectPrefix());
+
    if(InpUseM5)
    {
-      datetime currentM5 = iTime(_Symbol, PERIOD_M5, 0);
-      if(currentM5 != lastM5Time)
-      {
-         lastM5Time = currentM5;
-         EvaluateExecution(PERIOD_M5);
-      }
+     datetime currentM5 = iTime(_Symbol, PERIOD_M5, 0);
+     if(currentM5 != lastM5Time)
+     {
+        lastM5Time = currentM5;
+        EvaluateExecution(PERIOD_M5);
+     }
    }
 
    if(InpUseM1)
    {
-      datetime currentM1 = iTime(_Symbol, PERIOD_M1, 0);
-      if(currentM1 != lastM1Time)
-      {
-         lastM1Time = currentM1;
-         EvaluateExecution(PERIOD_M1);
-      }
+     datetime currentM1 = iTime(_Symbol, PERIOD_M1, 0);
+     if(currentM1 != lastM1Time)
+     {
+        lastM1Time = currentM1;
+        EvaluateExecution(PERIOD_M1);
+     }
    }
 }
 

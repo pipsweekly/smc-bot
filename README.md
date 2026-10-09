@@ -33,6 +33,8 @@ See `COMPILATION_REQUIREMENTS.txt` for the full list.
 - extra safety cap on risk sizing for synthetic instruments
 - support and resistance trendline confirmation
 - continuation flag detection for impulsive moves followed by consolidation
+- chart visual toggles for SMC zones, pivot levels, and trendlines
+- persistent object naming by symbol/timeframe for cleaner chart reloads
 - no dependency on normal session open/close logic
 - M5/M1 entry confirmation optimized for continuous synthetic index flow
 
