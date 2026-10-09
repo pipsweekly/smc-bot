@@ -8,12 +8,23 @@ This project contains a MetaTrader 5 Expert Advisor built from the original trad
 
 ## Recommended usage
 
-1. Open MetaEditor in MetaTrader 5.
+1. Install MetaTrader 5 on this machine.
 2. Open or create an EA project and paste the source from `SMC_MTF_StrictRRR.mq5`.
-3. Compile the EA.
+3. Compile the EA in MetaEditor.
 4. Attach it to a Weltrade synthetic index chart such as `VOL75`, `VOL100`, `CRASH500`, `BOOM500`, `STEP`, or your broker's equivalent symbol name.
 5. Leave the synthetic index settings enabled.
 6. Use a demo account first and optimize the inputs before live use.
+
+## Compilation requirements
+
+This project cannot be compiled in a plain Python environment. To compile the Expert Advisor here, you need:
+
+- Windows 10 or 11
+- MetaTrader 5 installed with MetaEditor
+- MQL5 compiler included with the MT5 installation
+- A broker account or demo account with synthetic indices enabled
+
+See `COMPILATION_REQUIREMENTS.txt` for the full list.
 
 ## Synthetic-index tuning included
 

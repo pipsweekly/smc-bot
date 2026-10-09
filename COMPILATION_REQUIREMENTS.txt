@@ -1,0 +1,38 @@
+SMC Bot Compilation Requirements
+================================
+
+This Expert Advisor is written in MQL5 for MetaTrader 5. A standard Python environment is not enough to compile it.
+
+Required software
+-----------------
+1. Windows 10 or 11 (x64)
+2. MetaTrader 5 terminal installed on the machine
+   - Official MetaTrader 5 platform from MetaQuotes
+   - Includes MetaEditor and MQL5 compiler
+3. A valid MT5 account or demo account linked to your broker
+   - For Weltrade synthetic indices, use the Weltrade MT5 terminal or equivalent supported setup
+4. Access to the desired synthetic symbols in the terminal
+   - Examples: VOL75, VOL100, CRASH500, BOOM500, STEP, etc.
+
+Required setup steps
+--------------------
+1. Install MetaTrader 5 on this Windows machine.
+2. Log in to your broker account in MT5.
+3. Open MetaEditor from MT5.
+4. Open the file: SMC_MTF_StrictRRR.mq5
+5. Click Compile.
+6. If compilation succeeds, MetaEditor will generate an .ex5 file.
+7. Attach the EA to a synthetic index chart in MT5.
+
+Important limitations
+--------------------
+- This environment does not include MetaEditor or the MQL5 compiler.
+- Without MetaTrader 5 installed, there is no way to produce a .ex5 file on this machine.
+- No pip install, npm install, or Python package can replace the official MT5 development toolchain.
+
+Minimum practical setup for this repo
+------------------------------------
+- MetaTrader 5 terminal installed
+- MQL5 compiler available from MetaEditor
+- Synthetic symbol data enabled in the broker account
+- At least one demo account to validate the EA before live trading
