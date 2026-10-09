@@ -121,8 +121,6 @@ void DrawSMCZone(const SMCZone &zone)
       ObjectSetInteger(0, id, OBJPROP_WIDTH, 1);
       ObjectSetInteger(0, id, OBJPROP_SELECTABLE, false);
       ObjectSetInteger(0, id, OBJPROP_HIDDEN, true);
-      ObjectSetInteger(0, id, OBJPROP_TIME1, (int)leftTime);
-      ObjectSetInteger(0, id, OBJPROP_TIME2, (int)rightTime);
    }
 
    string topId = id + "_TOP";
@@ -135,9 +133,6 @@ void DrawSMCZone(const SMCZone &zone)
    ObjectSetInteger(0, botId, OBJPROP_COLOR, clrSilver);
    ObjectSetInteger(0, topId, OBJPROP_BACK, true);
    ObjectSetInteger(0, botId, OBJPROP_BACK, true);
-   ObjectSetInteger(0, id, OBJPROP_TRANSPARENT, true);
-   ObjectSetInteger(0, topId, OBJPROP_TRANSPARENT, true);
-   ObjectSetInteger(0, botId, OBJPROP_TRANSPARENT, true);
 }
 
 //+------------------------------------------------------------------+
@@ -158,7 +153,6 @@ void DrawPRLevel(double price, bool isSupport, datetime t)
    ObjectSetInteger(0, id, OBJPROP_COLOR, isSupport ? clrGreen : clrRed);
    ObjectSetString(0, id, OBJPROP_TEXT, isSupport ? "PA Support" : "PA Resist");
    ObjectSetInteger(0, id, OBJPROP_BACK, true);
-   ObjectSetInteger(0, id, OBJPROP_TRANSPARENT, true);
 }
 
 //+------------------------------------------------------------------+
@@ -181,7 +175,6 @@ void DrawTrendline(datetime t1, double p1, datetime t2, double p2, bool isSuppor
       ObjectSetInteger(0, id, OBJPROP_COLOR, isSupport ? clrLime : clrOrangeRed);
       ObjectSetInteger(0, id, OBJPROP_WIDTH, 2);
       ObjectSetInteger(0, id, OBJPROP_BACK, true);
-      ObjectSetInteger(0, id, OBJPROP_TRANSPARENT, true);
    }
 }
 
