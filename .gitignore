@@ -8,5 +8,5 @@ Desktop.ini
 # MT5 build artifacts
 *.ex5
 *.ex4
-*.mq5
-# Keep source tracked but ignore build outputs
+
+# Keep source files tracked for MetaEditor compilation
